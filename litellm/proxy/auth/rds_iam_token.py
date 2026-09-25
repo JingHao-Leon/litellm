@@ -7,11 +7,13 @@ import httpx
 def init_rds_client(
     aws_access_key_id: str | None = None,
     aws_secret_access_key: str | None = None,
+    aws_session_token: str | None = None,
     aws_region_name: str | None = None,
     aws_session_name: str | None = None,
     aws_profile_name: str | None = None,
     aws_role_name: str | None = None,
     aws_web_identity_token: str | None = None,
+    ignore_web_identity_token: bool = False,
     timeout: float | httpx.Timeout | None = None,
 ):
     from litellm.secret_managers.main import get_secret
@@ -24,6 +26,7 @@ def init_rds_client(
     params_to_check: Final = [
         aws_access_key_id,
         aws_secret_access_key,
+        aws_session_token,
         aws_region_name,
         aws_session_name,
         aws_profile_name,
@@ -39,12 +42,15 @@ def init_rds_client(
     (
         aws_access_key_id,
         aws_secret_access_key,
+        aws_session_token,
         aws_region_name,
         aws_session_name,
         aws_profile_name,
         aws_role_name,
         aws_web_identity_token,
     ) = params_to_check
+
+    web_identity_token: Final = None if ignore_web_identity_token else aws_web_identity_token
 
     ### SET REGION NAME
     region_name = aws_region_name
@@ -69,11 +75,11 @@ def init_rds_client(
         config = boto3.session.Config()
 
     ### CHECK STS ###
-    if aws_web_identity_token is not None and aws_role_name is not None and aws_session_name is not None:
+    if web_identity_token is not None and aws_role_name is not None and aws_session_name is not None:
         try:
-            oidc_token = open(aws_web_identity_token).read()  # check if filepath
+            oidc_token = open(web_identity_token).read()  # check if filepath
         except Exception:
-            oidc_token = get_secret(aws_web_identity_token)
+            oidc_token = get_secret(web_identity_token)
 
         if oidc_token is None:
             raise Exception(
@@ -106,6 +112,7 @@ def init_rds_client(
             "sts",
             aws_access_key_id=aws_access_key_id,
             aws_secret_access_key=aws_secret_access_key,
+            aws_session_token=aws_session_token,
         )
 
         sts_response = sts_client.assume_role(RoleArn=aws_role_name, RoleSessionName=aws_session_name)
@@ -126,6 +133,7 @@ def init_rds_client(
             service_name="rds",
             aws_access_key_id=aws_access_key_id,
             aws_secret_access_key=aws_secret_access_key,
+            aws_session_token=aws_session_token,
             region_name=region_name,
             config=config,
         )
@@ -155,14 +163,18 @@ def generate_iam_auth_token(db_host, db_port, db_user, client: Any | None = None
     from urllib.parse import quote
 
     if client is None:
+        from litellm.secret_managers.main import get_secret_bool
+
         boto_client = init_rds_client(
             aws_region_name=os.getenv("AWS_REGION_NAME"),
             aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
             aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+            aws_session_token=os.getenv("AWS_SESSION_TOKEN"),
             aws_session_name=os.getenv("AWS_SESSION_NAME"),
             aws_profile_name=os.getenv("AWS_PROFILE_NAME"),
             aws_role_name=os.getenv("AWS_ROLE_NAME", os.getenv("AWS_ROLE_ARN")),
             aws_web_identity_token=os.getenv("AWS_WEB_IDENTITY_TOKEN", os.getenv("AWS_WEB_IDENTITY_TOKEN_FILE")),
+            ignore_web_identity_token=get_secret_bool("AWS_RDS_IAM_IGNORE_WEB_IDENTITY_TOKEN", default_value=False),
         )
     else:
         boto_client = client
