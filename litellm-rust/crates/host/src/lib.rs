@@ -5,6 +5,7 @@
 //! which host is on the other end. The machine yields [`host::HostOp`]s; a driver answers
 //! them, observes [`event::CallEvent`]s and may rewrite the wire request before it is sent.
 
+pub mod coroutine;
 pub mod event;
 pub mod host;
 pub mod machine;
