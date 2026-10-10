@@ -1,6 +1,6 @@
 import time
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from itertools import filterfalse
 from typing import Any, Final, cast
 
@@ -16,6 +16,7 @@ from litellm.responses.litellm_completion_transformation.custom_tools import (
 from litellm.responses.litellm_completion_transformation.reasoning_items import mint_reasoning_item_id
 from litellm.responses.litellm_completion_transformation.transformation import (
     LiteLLMCompletionResponsesConfig,
+    normalized_reasoning_echo,
 )
 from litellm.responses.streaming_iterator import ResponsesAPIStreamingIterator
 from litellm.responses.utils import ResponsesAPIRequestUtils
@@ -537,6 +538,14 @@ class LiteLLMCompletionStreamingIterator(ResponsesAPIStreamingIterator):
             litellm_metadata=self.litellm_metadata,
         )
 
+    def _created_event_reasoning(self) -> Mapping[str, object]:
+        """``response.created`` echoes the requested reasoning with both spec
+        keys present (issue #45563)."""
+        requested: Final = normalized_reasoning_echo(
+            self.responses_api_request.get("reasoning")  # pyright: ignore[reportUnknownMemberType]  # request params are a loose TypedDict
+        )
+        return requested or {"effort": None, "summary": None}
+
     def _default_response_created_event_data(self) -> dict:
         # Use cached response ID if available, otherwise generate a new one
         if self._cached_response_id is None:
@@ -555,7 +564,7 @@ class LiteLLMCompletionStreamingIterator(ResponsesAPIStreamingIterator):
             "output": [],
             "parallel_tool_calls": True,
             "previous_response_id": None,
-            "reasoning": {"effort": None, "summary": None},
+            "reasoning": self._created_event_reasoning(),
             "store": True,
         }
         if "temperature" in self.responses_api_request:
@@ -1016,7 +1025,7 @@ class LiteLLMCompletionStreamingIterator(ResponsesAPIStreamingIterator):
         self._queue_message_item_added_events()
         return
 
-    async def __anext__(
+    async def _anext_event(
         self,
     ) -> ResponsesAPIStreamingResponse | ResponseCompletedEvent | BaseLiteLLMOpenAIResponseObject:
         try:
@@ -1126,7 +1135,43 @@ class LiteLLMCompletionStreamingIterator(ResponsesAPIStreamingIterator):
     def __iter__(self):
         return self
 
+    def _assign_sequence_number(
+        self, event: ResponsesAPIStreamingResponse | ResponseCompletedEvent | BaseLiteLLMOpenAIResponseObject
+    ) -> ResponsesAPIStreamingResponse | ResponseCompletedEvent | BaseLiteLLMOpenAIResponseObject:
+        """Stamp every emitted event with the next sequence_number.
+
+        Clients keying on Responses streams expect a consistent, strictly
+        increasing sequence_number on every event (issue #44923): stamping at
+        this single exit point guarantees emission-order numbering, where the
+        per-site assignments only covered the tool-call path and the rest
+        serialized without one (OutputItemDoneEvent fell back to its default).
+        """
+        # Independent counter advanced only here: getattr keeps this working
+        # for instances built without __init__ (several tests do that).
+        self._emitted_sequence_number = getattr(self, "_emitted_sequence_number", 0) + 1
+        # Plain attribute assignment (not __dict__ injection): with
+        # extra="allow" only attribute assignment lands the extra field in
+        # model_dump output.
+        event.sequence_number = self._emitted_sequence_number
+        return event
+
     def __next__(
+        self,
+    ) -> ResponsesAPIStreamingResponse | ResponseCompletedEvent | BaseLiteLLMOpenAIResponseObject:
+        event = self._next_event()
+        if event is None:
+            raise StopIteration
+        return self._assign_sequence_number(event)
+
+    async def __anext__(
+        self,
+    ) -> ResponsesAPIStreamingResponse | ResponseCompletedEvent | BaseLiteLLMOpenAIResponseObject:
+        event = await self._anext_event()
+        if event is None:
+            raise StopAsyncIteration
+        return self._assign_sequence_number(event)
+
+    def _next_event(
         self,
     ) -> ResponsesAPIStreamingResponse | ResponseCompletedEvent | BaseLiteLLMOpenAIResponseObject:
         try:
