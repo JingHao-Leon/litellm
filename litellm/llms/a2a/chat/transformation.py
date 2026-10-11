@@ -132,12 +132,7 @@ class A2AConfig(BaseConfig):
 
     def get_supported_openai_params(self, model: str) -> list[str]:
         """Return list of supported OpenAI parameters"""
-        return [
-            "stream",
-            "temperature",
-            "max_tokens",
-            "top_p",
-        ]
+        return ["stream"]
 
     def map_openai_params(
         self,

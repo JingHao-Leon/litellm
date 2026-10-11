@@ -7,6 +7,7 @@ import pytest
 from litellm.llms.a2a.chat.streaming_iterator import A2AModelResponseIterator
 from litellm.llms.a2a.chat.transformation import A2AConfig
 from litellm.types.utils import ModelResponse
+from litellm.utils import UnsupportedParamsError, get_optional_params
 
 
 def _raw_response(text: str) -> MagicMock:
@@ -121,3 +122,31 @@ def test_resolve_agent_config_from_registry_returns_the_explicit_headers_object_
     assert resolved[2] is headers
     assert resolved[:2] == ("http://explicit.example", "explicit-key")
     assert optional_params == {"stream": True}
+
+
+@pytest.mark.parametrize(
+    ("param", "value"),
+    [("temperature", 0.7), ("max_tokens", 128), ("top_p", 0.9)],
+)
+def test_a2a_rejects_params_that_are_never_mapped(param: str, value: object) -> None:
+    """A2AConfig used to declare these and then discard them, so a caller got a
+    request at the provider's defaults with no error (#45944)."""
+    with pytest.raises(UnsupportedParamsError):
+        get_optional_params(
+            model="a2a/gemini-2.0-flash",
+            custom_llm_provider="a2a",
+            request_timeout=10,
+            num_retries=0,
+            **{param: value},
+        )
+
+
+def test_a2a_stream_is_still_supported() -> None:
+    optional_params = get_optional_params(
+        model="a2a/gemini-2.0-flash",
+        custom_llm_provider="a2a",
+        stream=True,
+        request_timeout=10,
+        num_retries=0,
+    )
+    assert optional_params["stream"] is True
