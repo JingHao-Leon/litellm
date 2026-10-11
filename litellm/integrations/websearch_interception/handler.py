@@ -116,7 +116,7 @@ def _web_search_domain_strings(tool: Mapping[str, object], key: str) -> tuple[st
 
 
 def _extract_web_search_domain_filters(
-    tools: Sequence[Mapping[str, object]],
+    tools: Sequence[dict[str, object]],  # mutable-ok: tool schemas arrive as plain dicts from the model payload
 ) -> Mapping[str, tuple[str, ...]] | None:
     """Collect ``allowed_domains`` / ``blocked_domains`` from web search tools.
 
@@ -679,7 +679,7 @@ class WebSearchInterceptionLogger(CustomLogger):
             return None
 
         # Check if request has tools
-        tools: Final = kwargs.get("tools")
+        tools: Final[Sequence[dict[str, object]] | None] = kwargs.get("tools")
         if not tools:
             return None
 
@@ -1669,26 +1669,37 @@ class WebSearchInterceptionLogger(CustomLogger):
             # the convention litellm.asearch()'s providers (e.g. Perplexity)
             # use for search_domain_filter.
             request_domain_filters: Final = kwargs.get(WEBSEARCH_DOMAIN_FILTER_KEY) if kwargs is not None else None
-            domain_view: Final = (
-                request_domain_filters if isinstance(request_domain_filters, Mapping) else MappingProxyType({})
+            domain_view: Final[Mapping[str, object]] = (
+                request_domain_filters  # pyright: ignore[reportUnknownMemberType]  # isinstance narrows to a bare Mapping, the annotation supplies the value type
+                if isinstance(request_domain_filters, Mapping)
+                else MappingProxyType({})
             )
             allowed: Final = tuple(
-                item for item in domain_view.get("allowed_domains", ()) if isinstance(item, str) and item
+                item
+                for item in domain_view.get("allowed_domains", ())  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType, reportGeneralTypeIssues]  # get() on Mapping[str, object] yields an untyped object
+                if isinstance(item, str) and item
             )
             blocked: Final = tuple(
-                f"-{item}" for item in domain_view.get("blocked_domains", ()) if isinstance(item, str) and item
+                f"-{item}"
+                for item in domain_view.get("blocked_domains", ())  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType, reportGeneralTypeIssues]  # get() on Mapping[str, object] yields an untyped object
+                if isinstance(item, str) and item
             )
             search_domain_filter: Final = [*allowed, *blocked] or None
             if search_domain_filter is not None:
                 verbose_logger.debug("WebSearchInterception: Applying domain filter %s", search_domain_filter)
             search_kwargs: Final = MappingProxyType(
-                {**configured_search_kwargs, **parent_correlation.as_search_kwargs()}
+                {
+                    key: value
+                    for key, value in {**configured_search_kwargs, **parent_correlation.as_search_kwargs()}.items()
+                    if key
+                    != "search_domain_filter"  # rebind-ok: already passed explicitly above; passing it twice is a TypeError
+                }
             )
             result: Final = (
                 await litellm.asearch(
                     query=query_arg,
                     search_provider=search_provider,
-                    search_domain_filter=search_domain_filter,
+                    search_domain_filter=search_domain_filter,  # pyright: ignore[reportCallIssue]  # search_kwargs is filtered to exclude this key; pyright cannot see through the MappingProxyType
                     **_NO_ASEARCH_NAMED,
                     **search_kwargs,
                 )
@@ -1696,7 +1707,7 @@ class WebSearchInterceptionLogger(CustomLogger):
                 else await litellm.asearch(
                     query=query_arg,
                     search_provider=search_provider,
-                    search_domain_filter=search_domain_filter,
+                    search_domain_filter=search_domain_filter,  # pyright: ignore[reportCallIssue]  # search_kwargs is filtered to exclude this key; pyright cannot see through the MappingProxyType
                     litellm_metadata=search_metadata,
                     **_NO_ASEARCH_NAMED,
                     **search_kwargs,
