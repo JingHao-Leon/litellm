@@ -1783,18 +1783,18 @@ class OpenAiResponsesToChatCompletionStreamIterator(BaseModelResponseIterator):
                 )
             else:
                 raise ValueError(f"Chat provider: Invalid text delta {parsed_chunk}")
-        elif event_type == ResponsesAPIStreamEvents.OUTPUT_TEXT_ANNOTATION_ADDED:
+        elif event_type == ResponsesAPIStreamEvents.OUTPUT_TEXT_ANNOTATION_ADDED:  # pyright: ignore[reportUnknownMemberType]  # the member post-dates the pinned openai stubs, it exists at runtime
             # A url_citation / file_citation arrived for the in-flight message.
             # Emit it on the delta exactly once in Chat Completions format —
             # this is the only event that carries it, so later
             # output_item.done / response.completed events must not repeat it
             # or accumulating clients would see duplicates (issue #43817).
-            raw_annotation: Final = parsed_chunk.get("annotation", None)
-            annotation: Final = LiteLLMResponsesTransformationHandler._convert_annotations_to_chat_format(
+            raw_annotation: Final = parsed_chunk.get("annotation", None)  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]  # the parsed chunk is an untyped event payload
+            annotation: Final = LiteLLMResponsesTransformationHandler._convert_annotations_to_chat_format(  # pyright: ignore[reportPrivateUsage, reportUnknownMemberType, reportUnknownVariableType]  # cross-class reuse of the existing converter; the annotation payload is untyped, and renaming a protected helper is a wider change than this fix
                 [raw_annotation] if raw_annotation is not None else None
             )
             if annotation:
-                return ModelResponseStream(
+                return ModelResponseStream(  # pyright: ignore[reportUnknownVariableType]  # annotation carries untyped payload values through to the Delta
                     choices=[
                         StreamingChoices(
                             index=0,
@@ -1803,7 +1803,7 @@ class OpenAiResponsesToChatCompletionStreamIterator(BaseModelResponseIterator):
                         )
                     ]
                 )
-            return ModelResponseStream(
+            return ModelResponseStream(  # pyright: ignore[reportUnknownVariableType]  # same untyped annotation payload
                 choices=[
                     StreamingChoices(
                         index=0,
