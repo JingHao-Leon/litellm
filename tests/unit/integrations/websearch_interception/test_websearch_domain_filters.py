@@ -111,10 +111,14 @@ class TestExecuteSearchAppliesDomainFilter:
                 "blocked_domains": ["twitter.com"],
             }
         }
-        asearch = AsyncMock(return_value=_make_search_response())
-        with patch("litellm.asearch", asearch):
-            await logger._execute_search("what is litellm", kwargs=kwargs)
+        expected = _make_search_response()
+        asearch = AsyncMock(return_value=expected)
+        with patch("litellm.asearch", asearch):  # test-quality-ok: asearch is the network boundary here
+            text, response = await logger._execute_search("what is litellm", kwargs=kwargs)
 
+        # The search actually ran and its result reached the caller.
+        assert response is expected
+        assert "docs.litellm.ai" in text
         assert asearch.await_count == 1
         assert asearch.await_args.kwargs.get("search_domain_filter") == [
             "docs.litellm.ai",
@@ -124,9 +128,12 @@ class TestExecuteSearchAppliesDomainFilter:
     @pytest.mark.asyncio
     async def test_no_filter_when_kwargs_empty(self):
         logger = WebSearchInterceptionLogger(enabled_providers=["bedrock"])
-        asearch = AsyncMock(return_value=_make_search_response())
-        with patch("litellm.asearch", asearch):
-            await logger._execute_search("what is litellm", kwargs={})
+        expected = _make_search_response()
+        asearch = AsyncMock(return_value=expected)
+        with patch("litellm.asearch", asearch):  # test-quality-ok: asearch is the network boundary here
+            text, response = await logger._execute_search("what is litellm", kwargs={})
 
+        assert response is expected
+        assert "docs.litellm.ai" in text
         assert asearch.await_count == 1
         assert asearch.await_args.kwargs.get("search_domain_filter") is None
