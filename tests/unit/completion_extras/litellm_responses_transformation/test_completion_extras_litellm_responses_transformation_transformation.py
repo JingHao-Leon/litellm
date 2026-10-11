@@ -5043,14 +5043,6 @@ def test_transform_request_keeps_the_preceding_part_breakpoint_over_the_dropped_
 def test_convert_chat_completion_messages_to_responses_api_keeps_prompt_cache_breakpoint_on_unknown_block():
     """The hook marks the last block of its target message, so a message ending in a block the bridge
     cannot map reaches the stringify path and has to keep the marker there."""
-
-
-def test_convert_response_output_keeps_every_reasoning_item_before_a_message():
-    """Regression for issue #43620 (stream=False): the Responses API can emit several
-    reasoning items before the assistant message, and the bridge used to overwrite
-    its pending reasoning item per item, so only the last one reached
-    message.reasoning_items. Every item must survive the flush."""
-    from openai.types.responses import ResponseOutputMessage, ResponseOutputText, ResponseReasoningItem
     from litellm.completion_extras.litellm_responses_transformation.transformation import (
         LiteLLMResponsesTransformationHandler,
     )
@@ -5148,6 +5140,16 @@ def test_transform_request_drop_params_in_litellm_params_gates_the_prompt_cache_
 
     assert "prompt_cache_breakpoint" not in result["input"][0]["content"][0]
 
+
+def test_convert_response_output_keeps_every_reasoning_item_before_a_message():
+    """Regression for issue #43620 (stream=False): the Responses API can emit several
+    reasoning items before the assistant message, and the bridge used to overwrite
+    its pending reasoning item per item, so only the last one reached
+    message.reasoning_items. Every item must survive the flush."""
+    from openai.types.responses import ResponseOutputMessage, ResponseOutputText, ResponseReasoningItem
+    from litellm.completion_extras.litellm_responses_transformation.transformation import (
+        LiteLLMResponsesTransformationHandler,
+    )
 
     rs_1 = ResponseReasoningItem(type="reasoning", id="rs_1", summary=[], encrypted_content="enc1")
     rs_2 = ResponseReasoningItem(type="reasoning", id="rs_2", summary=[], encrypted_content="enc2")
